@@ -1,0 +1,15 @@
+[Unit]
+Description=APRS-to-TAK Web UI
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/aprs-tak-gateway
+ExecStart=/usr/bin/env uvicorn aprs_tak_gateway.web:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

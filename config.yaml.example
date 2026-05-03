@@ -1,0 +1,38 @@
+aprsis:
+  enabled: true
+  server: noam.aprs2.net
+  port: 14580
+  login_call: N6IPD-15
+  passcode: "12420"
+  app_name: aprs-tak-gw
+  app_version: "0.1"
+
+direwolf:
+  enabled: true
+  host: 127.0.0.1
+  port: 8000
+
+database:
+  path: /opt/aprs-tak-gateway/roster.db
+
+gateway:
+  stale_minutes: 10
+  roster_poll_seconds: 30
+  dedupe_seconds: 60
+  prefer_rf_over_aprsis: true
+
+tak:
+  enabled: true
+  host: tak.local.mesh
+  port: 8089
+  protocol: tls
+  ca_file: /opt/aprs-tak-gateway/certs/ca.pem
+  cert_file: /opt/aprs-tak-gateway/certs/client.pem
+  key_file: /opt/aprs-tak-gateway/certs/client.key
+
+web:
+  enabled: true
+  host: 127.0.0.1
+  port: 8080
+  admin_password: "changeme"
+  secret_key: "replace-with-your-secret"

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Roster</h2>
+  <p><strong>APRS-IS Filter:</strong> <code>{{ filter_text }}</code></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Callsign</th>
+        <th>TAK UID</th>
+        <th>Display</th>
+        <th>Match all SSIDs</th>
+        <th>Enabled</th>
+        <th>Last heard</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td>{{ entry.aprs_call }}</td>
+        <td>{{ entry.tak_uid }}</td>
+        <td>{{ entry.display_name }}</td>
+        <td>{{ "Yes" if entry.match_all_ssids else "No" }}</td>
+        <td>{{ "Yes" if entry.enabled else "No" }}</td>
+        <td>{{ entry.last_heard_at or "-" }}<br>{{ entry.last_heard_source or "" }}</td>
+        <td>
+          <a href="/user/edit/{{ entry.id }}">Edit</a>
+          <form method="post" action="/user/toggle/{{ entry.id }}" style="display:inline; margin-left: 8px;">
+            <button class="button secondary" type="submit">Toggle</button>
+          </form>
+          <form method="post" action="/user/delete/{{ entry.id }}" style="display:inline; margin-left: 8px;" onsubmit="return confirm('Delete this user?');">
+            <button class="button danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

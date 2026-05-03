@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>APRS-IS Filter</h2>
+  <p><strong>Current filter:</strong></p>
+  <pre>{{ filter_text }}</pre>
+  <p><strong>Roster version:</strong> {{ roster_version }}</p>
+  <form method="post" action="/reload">
+    <button class="button" type="submit">Request reconnect/reload</button>
+  </form>
+{% endblock %}

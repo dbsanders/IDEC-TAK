@@ -1,0 +1,15 @@
+[Unit]
+Description=APRS-to-TAK Gateway
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/aprs-tak-gateway
+ExecStart=/usr/bin/env python -m aprs_tak_gateway.main --config /opt/aprs-tak-gateway/config.yaml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
