@@ -18,3 +18,7 @@ test = ["pytest>=8.0","pytest-asyncio>=0.22.0"]
 
 [project.scripts]
 aprs-tak-gateway = "aprs_tak_gateway.main:main"
+
+[tool.setuptools.packages.find]
+include = ["aprs_tak_gateway"]
+exclude = ["systemd"]
