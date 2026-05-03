@@ -3,7 +3,7 @@ from xml.sax.saxutils import escape
 
 
 def build_cot_xml(
-    source_call: str,
+    tak_uid: str,
     display_name: str,
     latitude: float,
     longitude: float,
@@ -14,12 +14,11 @@ def build_cot_xml(
 ) -> str:
     event_time = datetime.utcnow()
     stale_time = event_time + timedelta(minutes=stale_minutes)
-    uid = f"aprs.{source_call}"
     hae = _convert_altitude_to_meters(altitude_feet)
     remark_text = comment or ""
 
     return (
-        f"<event version=\"2.0\" uid=\"{escape(uid)}\" type=\"a-n-G\" how=\"m-g\" "
+        f"<event version=\"2.0\" uid=\"{escape(tak_uid)}\" type=\"a-n-G\" how=\"m-g\" "
         f"time=\"{event_time.isoformat()}Z\" start=\"{event_time.isoformat()}Z\" "
         f"stale=\"{stale_time.isoformat()}Z\">"
         f"<point lat=\"{latitude:.6f}\" lon=\"{longitude:.6f}\" hae=\"{hae:.1f}\" ce=\"9999999.0\" le=\"9999999.0\"/>"

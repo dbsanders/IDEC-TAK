@@ -3,7 +3,7 @@ from aprs_tak_gateway.cot import build_cot_xml
 
 def test_build_cot_xml_contains_uid_and_coordinates():
     xml = build_cot_xml(
-        source_call="K6ABC-7",
+        tak_uid="aprs.K6ABC-7",
         display_name="TAC-12",
         latitude=34.165667,
         longitude=-118.158167,

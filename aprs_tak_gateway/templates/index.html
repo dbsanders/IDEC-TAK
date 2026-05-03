@@ -8,6 +8,7 @@
         <th>Callsign</th>
         <th>TAK UID</th>
         <th>Display</th>
+        <th>Tactical Call</th>
         <th>Match all SSIDs</th>
         <th>Enabled</th>
         <th>Last heard</th>
@@ -20,6 +21,7 @@
         <td>{{ entry.aprs_call }}</td>
         <td>{{ entry.tak_uid }}</td>
         <td>{{ entry.display_name }}</td>
+        <td>{{ entry.tactical_call or "-" }}</td>
         <td>{{ "Yes" if entry.match_all_ssids else "No" }}</td>
         <td>{{ "Yes" if entry.enabled else "No" }}</td>
         <td>{{ entry.last_heard_at or "-" }}<br>{{ entry.last_heard_source or "" }}</td>

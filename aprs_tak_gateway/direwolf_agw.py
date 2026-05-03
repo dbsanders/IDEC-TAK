@@ -76,7 +76,7 @@ class DirewolfAgwClient:
             return
 
         xml = build_cot_xml(
-            source_call=parsed.source,
+            tak_uid=roster_entry.tak_uid,
             display_name=roster_entry.display_name,
             latitude=parsed.latitude,
             longitude=parsed.longitude,
