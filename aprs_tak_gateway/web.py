@@ -7,15 +7,25 @@ from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from .config import load_config
 from .roster import RosterDB, RosterEntry
 
 app = FastAPI()
-templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+site_dir = os.path.join(os.path.dirname(__file__), "templates")
+template_env = Environment(
+    loader=FileSystemLoader(site_dir),
+    autoescape=select_autoescape(["html", "xml"]),
+)
 roster_db: RosterDB | None = None
 config: dict[str, Any] | None = None
+secret_key_value: bytes | None = None
+
+
+def _render_template(name: str, context: dict[str, Any]) -> HTMLResponse:
+    template = template_env.get_template(name)
+    return HTMLResponse(template.render(context))
 
 SESSION_COOKIE = "aprs_tak_gateway_session"
 
@@ -57,11 +67,21 @@ def _get_db() -> RosterDB:
 
 
 def _get_secret_key() -> bytes:
+    global secret_key_value
+    if secret_key_value is not None:
+        return secret_key_value
+
     cfg = _load_app_config()
     secret = cfg["web"].get("secret_key")
-    if not secret:
-        secret = os.getenv("WEB_SECRET_KEY") or secrets.token_hex(32)
-    return secret.encode("utf-8")
+    if secret:
+        secret_key_value = secret.encode("utf-8")
+    else:
+        env_secret = os.getenv("WEB_SECRET_KEY")
+        if env_secret:
+            secret_key_value = env_secret.encode("utf-8")
+        else:
+            secret_key_value = secrets.token_bytes(32)
+    return secret_key_value
 
 
 def _sign_value(value: str) -> str:
@@ -109,22 +129,27 @@ def _require_auth(request: Request, user: str | None) -> str:
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return _render_template("login.html", {"request": request, "error": None})
 
 
 @app.post("/login", response_class=HTMLResponse)
-async def login_submit(request: Request, password: str = Form(...)) -> HTMLResponse:
+async def login_submit(request: Request, username: str = Form(...), password: str = Form(...)) -> HTMLResponse:
+    if username != "admin":
+        return HTMLResponse(
+            template_env.get_template("login.html").render({"request": request, "error": "Invalid username or password."}),
+            status_code=401,
+        )
+
     db = _get_db()
     stored_hash = await db.get_setting("web_admin_password_hash")
     if not stored_hash or not _verify_password(password, stored_hash):
-        return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "error": "Invalid password."},
+        return HTMLResponse(
+            template_env.get_template("login.html").render({"request": request, "error": "Invalid username or password."}),
             status_code=401,
         )
 
     response = RedirectResponse(url="/", status_code=303)
-    value = _sign_value("admin")
+    value = _sign_value(username)
     response.set_cookie(SESSION_COOKIE, value, httponly=True, secure=False)
     return response
 
@@ -142,7 +167,7 @@ async def index(request: Request, user: str | None = Depends(_get_current_user))
     db = _get_db()
     entries = await db.get_all_entries()
     current_filter = await db.get_filter()
-    return templates.TemplateResponse(
+    return _render_template(
         "index.html",
         {
             "request": request,
@@ -156,7 +181,7 @@ async def index(request: Request, user: str | None = Depends(_get_current_user))
 @app.get("/user/create", response_class=HTMLResponse)
 async def create_user_page(request: Request, user: str | None = Depends(_get_current_user)) -> HTMLResponse:
     _require_auth(request, user)
-    return templates.TemplateResponse("user_form.html", {"request": request, "entry": None, "action": "Create"})
+    return _render_template("user_form.html", {"request": request, "entry": None, "action": "Create"})
 
 
 @app.post("/user/create")
@@ -203,7 +228,7 @@ async def edit_user_page(request: Request, entry_id: int, user: str | None = Dep
     if not row:
         raise HTTPException(status_code=404, detail="Entry not found")
     entry = db._row_to_entry(row)
-    return templates.TemplateResponse(
+    return _render_template(
         "user_form.html",
         {"request": request, "entry": entry, "action": "Edit"},
     )
@@ -275,7 +300,7 @@ async def filter_page(request: Request, user: str | None = Depends(_get_current_
     db = _get_db()
     current_filter = await db.get_filter()
     roster_version = await db.get_roster_version()
-    return templates.TemplateResponse(
+    return _render_template(
         "filter.html",
         {
             "request": request,
