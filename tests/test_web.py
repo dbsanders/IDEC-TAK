@@ -35,3 +35,21 @@ def test_login_sets_session_cookie_used_by_authenticated_routes():
             web.config = original_config
             web.secret_key_value = original_secret
             asyncio.run(db.close())
+
+
+def test_secret_key_requires_explicit_configuration():
+    original_config = web.config
+    original_secret = web.secret_key_value
+    web.config = {"web": {}, "database": {"path": ":memory:"}}
+    web.secret_key_value = None
+
+    try:
+        try:
+            web._get_secret_key()
+        except RuntimeError as exc:
+            assert "web.secret_key" in str(exc)
+        else:
+            raise AssertionError("Expected missing secret key to fail")
+    finally:
+        web.config = original_config
+        web.secret_key_value = original_secret

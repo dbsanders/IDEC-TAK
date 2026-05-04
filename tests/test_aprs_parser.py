@@ -27,3 +27,12 @@ def test_parse_aprs_with_timestamp():
     assert parsed.timestamp == "091014z"
     assert parsed.source == "K6ABC"
     assert parsed.source_type == "APRS-IS"
+
+
+def test_parse_aprs_finds_delayed_altitude_extension():
+    raw = "K6ABC>APRS:!3409.94N/11809.49W>hello /A=001234"
+    parsed = parse_aprs_packet(raw, source_type="RF")
+
+    assert parsed is not None
+    assert parsed.altitude == 1234
+    assert parsed.comment == "hello /A=001234"

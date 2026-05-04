@@ -81,7 +81,7 @@ def _get_secret_key() -> bytes:
         if env_secret:
             secret_key_value = env_secret.encode("utf-8")
         else:
-            secret_key_value = b"default-secret"
+            raise RuntimeError("web.secret_key or WEB_SECRET_KEY must be configured")
     return secret_key_value
 
 
@@ -114,6 +114,7 @@ def _get_current_user(session_cookie: str | None = Cookie(None, alias=SESSION_CO
 async def startup_event() -> None:
     global roster_db
     cfg = _load_app_config()
+    _get_secret_key()
     roster_db = RosterDB(cfg["database"]["path"])
     await roster_db.initialize()
     admin_password = cfg["web"].get("admin_password")
@@ -238,7 +239,17 @@ async def edit_user_submit(
     _require_auth(request, user)
     db = _get_db()
     normalized_call = RosterDB._normalize_call(aprs_call)
-    display_name = tactical_call.strip() if tactical_call else normalized_call
+    existing = await db._fetchone("SELECT aprs_call, tak_display_name FROM roster WHERE id = ?", (entry_id,))
+    if not existing:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    existing_display_name = existing["tak_display_name"]
+    generated_display_name = RosterDB._normalize_call(existing["aprs_call"])
+    if tactical_call:
+        display_name = tactical_call.strip()
+    elif existing_display_name and existing_display_name != generated_display_name:
+        display_name = existing_display_name
+    else:
+        display_name = normalized_call
     await db._execute(
         "UPDATE roster SET aprs_call = ?, enabled = ?, match_all_ssids = ?, tak_uid = ?, tak_display_name = ?, tactical_call = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         (

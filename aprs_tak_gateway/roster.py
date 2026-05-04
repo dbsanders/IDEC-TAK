@@ -23,6 +23,8 @@ class RosterEntry:
     def display_name(self) -> str:
         if self.tactical_call:
             return self.tactical_call
+        if self.tak_display_name:
+            return self.tak_display_name
         return self.aprs_call
 
     @property
@@ -84,6 +86,21 @@ class RosterDB:
         if not needs_rebuild:
             return
 
+        duplicates = await self._connection.execute_fetchall(
+            """
+            SELECT UPPER(aprs_call) AS normalized_call, GROUP_CONCAT(aprs_call, ', ') AS calls
+            FROM roster
+            GROUP BY UPPER(aprs_call)
+            HAVING COUNT(*) > 1
+            """
+        )
+        if duplicates:
+            duplicate_calls = "; ".join(row["calls"] for row in duplicates)
+            raise RuntimeError(
+                "Cannot migrate roster with case-variant duplicate APRS calls: "
+                f"{duplicate_calls}. Remove or merge duplicates before upgrading."
+            )
+
         await self._connection.execute("ALTER TABLE roster RENAME TO roster_old")
         await self._connection.execute(
             """
@@ -107,7 +124,6 @@ class RosterDB:
         rows = await self._connection.execute_fetchall(
             """
             SELECT * FROM roster_old
-            WHERE id IN (SELECT MIN(id) FROM roster_old GROUP BY UPPER(aprs_call))
             ORDER BY id
             """
         )
