@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0","pytest-asyncio>=0.22.0"]
+test = ["pytest>=8.0","pytest-asyncio>=0.22.0","httpx>=0.24.0"]
 
 [project.scripts]
 aprs-tak-gateway = "aprs_tak_gateway.main:main"

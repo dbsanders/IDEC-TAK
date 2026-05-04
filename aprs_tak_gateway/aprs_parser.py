@@ -75,20 +75,26 @@ def parse_aprs_packet(raw_packet: str, source_type: str) -> AprsPosition | None:
 
     remainder_index = pos_match.end()
     remainder_text = position_payload[remainder_index:].lstrip()
+    comment_text = remainder_text
     course = None
     speed = None
     altitude = None
 
-    cs_match = COURSE_SPEED_RE.search(remainder_text)
+    cs_match = COURSE_SPEED_RE.search(comment_text)
     if cs_match:
         course = int(cs_match.group("course"))
         speed = int(cs_match.group("speed"))
+        if cs_match.start() == 0:
+            comment_text = comment_text[cs_match.end():]
 
-    alt_match = ALTITUDE_RE.search(remainder_text)
+    alt_match = ALTITUDE_RE.search(comment_text)
     if alt_match:
         altitude = int(alt_match.group("alt"))
+        leading_alt_match = re.match(r"/?A=(?P<alt>\d{6})", comment_text)
+        if leading_alt_match:
+            comment_text = comment_text[leading_alt_match.end():]
 
-    comment = remainder_text or None
+    comment = comment_text.strip() or None
     return AprsPosition(
         source=source,
         destination=destination,

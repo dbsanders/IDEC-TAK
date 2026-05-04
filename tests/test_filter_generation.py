@@ -24,3 +24,4 @@ def test_filter_generation_from_roster():
         assert "b/K6ABC*" in filter_text
         assert "N6XYZ-7" in filter_text
         assert filter_text.startswith("filter ")
+        asyncio.run(db.close())

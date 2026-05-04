@@ -13,9 +13,6 @@ class RosterEntry:
     tak_uid: str
     tak_display_name: str
     tactical_call: str | None
-    team: str | None
-    role: str | None
-    icon: str | None
     remarks: str | None
     last_heard_at: str | None
     last_heard_source: str | None
@@ -50,15 +47,12 @@ class RosterDB:
             """
             CREATE TABLE IF NOT EXISTS roster (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                aprs_call TEXT NOT NULL UNIQUE,
+                aprs_call TEXT NOT NULL COLLATE NOCASE UNIQUE,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 match_all_ssids INTEGER NOT NULL DEFAULT 1,
                 tak_uid TEXT NOT NULL UNIQUE,
                 tak_display_name TEXT NOT NULL,
                 tactical_call TEXT,
-                team TEXT,
-                role TEXT,
-                icon TEXT,
                 remarks TEXT,
                 last_heard_at TEXT,
                 last_heard_source TEXT,
@@ -67,6 +61,7 @@ class RosterDB:
             )
             """
         )
+        await self._migrate_roster_schema()
         await self._connection.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -76,6 +71,89 @@ class RosterDB:
             """
         )
         await self._connection.commit()
+
+    async def _migrate_roster_schema(self) -> None:
+        if self._connection is None:
+            raise RuntimeError("Database not initialized")
+
+        row = await self._connection.execute_fetchall(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'roster'"
+        )
+        table_sql = row[0]["sql"] if row else ""
+        columns = await self._connection.execute_fetchall("PRAGMA table_info(roster)")
+        column_names = {column["name"] for column in columns}
+        needs_rebuild = bool({"team", "role", "icon"} & column_names) or "COLLATE NOCASE" not in table_sql.upper()
+        if not needs_rebuild:
+            return
+
+        duplicates = await self._connection.execute_fetchall(
+            """
+            SELECT UPPER(aprs_call) AS normalized_call, GROUP_CONCAT(aprs_call, ', ') AS calls
+            FROM roster
+            GROUP BY UPPER(aprs_call)
+            HAVING COUNT(*) > 1
+            """
+        )
+        if duplicates:
+            duplicate_calls = "; ".join(row["calls"] for row in duplicates)
+            raise RuntimeError(
+                "Cannot migrate roster with case-variant duplicate APRS calls: "
+                f"{duplicate_calls}. Remove or merge duplicates before upgrading."
+            )
+
+        await self._connection.execute("ALTER TABLE roster RENAME TO roster_old")
+        await self._connection.execute(
+            """
+            CREATE TABLE roster (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                aprs_call TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                match_all_ssids INTEGER NOT NULL DEFAULT 1,
+                tak_uid TEXT NOT NULL UNIQUE,
+                tak_display_name TEXT NOT NULL,
+                tactical_call TEXT,
+                remarks TEXT,
+                last_heard_at TEXT,
+                last_heard_source TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        rows = await self._connection.execute_fetchall(
+            """
+            SELECT * FROM roster_old
+            ORDER BY id
+            """
+        )
+        for row in rows:
+            aprs_call = self._normalize_call(row["aprs_call"])
+            tak_display_name = row["tak_display_name"] if "tak_display_name" in row.keys() else aprs_call
+            await self._connection.execute(
+                """
+                INSERT INTO roster(
+                    id, aprs_call, enabled, match_all_ssids, tak_uid, tak_display_name,
+                    tactical_call, remarks, last_heard_at, last_heard_source, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["id"],
+                    aprs_call,
+                    row["enabled"],
+                    row["match_all_ssids"],
+                    row["tak_uid"] or self.generate_tak_uid(aprs_call),
+                    tak_display_name or aprs_call,
+                    row["tactical_call"],
+                    row["remarks"],
+                    row["last_heard_at"],
+                    row["last_heard_source"],
+                    row["created_at"],
+                    row["updated_at"],
+                ),
+            )
+
+        await self._connection.execute("DROP TABLE roster_old")
 
     async def close(self) -> None:
         if self._connection:
@@ -173,9 +251,6 @@ class RosterDB:
             tak_uid=row["tak_uid"],
             tak_display_name=row["tak_display_name"],
             tactical_call=row["tactical_call"],
-            team=row["team"],
-            role=row["role"],
-            icon=row["icon"],
             remarks=row["remarks"],
             last_heard_at=row["last_heard_at"],
             last_heard_source=row["last_heard_source"],
@@ -186,6 +261,10 @@ class RosterDB:
     @staticmethod
     def _normalize_call(aprs_call: str) -> str:
         return aprs_call.strip().upper()
+
+    @classmethod
+    def generate_tak_uid(cls, aprs_call: str) -> str:
+        return f"aprs.{cls._normalize_call(aprs_call)}"
 
     @staticmethod
     def _base_call(aprs_call: str) -> str:

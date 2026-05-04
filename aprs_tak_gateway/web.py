@@ -4,6 +4,7 @@ import os
 import secrets
 from datetime import datetime
 from typing import Any
+from urllib.parse import unquote
 
 from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -80,7 +81,7 @@ def _get_secret_key() -> bytes:
         if env_secret:
             secret_key_value = env_secret.encode("utf-8")
         else:
-            secret_key_value = secrets.token_bytes(32)
+            raise RuntimeError("web.secret_key or WEB_SECRET_KEY must be configured")
     return secret_key_value
 
 
@@ -90,6 +91,7 @@ def _sign_value(value: str) -> str:
 
 
 def _verify_signed_value(signed_value: str) -> str | None:
+    signed_value = unquote(signed_value)
     if "|" not in signed_value:
         return None
     value, signature = signed_value.rsplit("|", 1)
@@ -99,7 +101,7 @@ def _verify_signed_value(signed_value: str) -> str | None:
     return None
 
 
-def _get_current_user(session_cookie: str | None = Cookie(None)) -> str | None:
+def _get_current_user(session_cookie: str | None = Cookie(None, alias=SESSION_COOKIE)) -> str | None:
     if not session_cookie:
         return None
     payload = _verify_signed_value(session_cookie)
@@ -112,6 +114,7 @@ def _get_current_user(session_cookie: str | None = Cookie(None)) -> str | None:
 async def startup_event() -> None:
     global roster_db
     cfg = _load_app_config()
+    _get_secret_key()
     roster_db = RosterDB(cfg["database"]["path"])
     await roster_db.initialize()
     admin_password = cfg["web"].get("admin_password")
@@ -133,23 +136,17 @@ async def login_page(request: Request) -> HTMLResponse:
 
 
 @app.post("/login", response_class=HTMLResponse)
-async def login_submit(request: Request, username: str = Form(...), password: str = Form(...)) -> HTMLResponse:
-    if username != "admin":
-        return HTMLResponse(
-            template_env.get_template("login.html").render({"request": request, "error": "Invalid username or password."}),
-            status_code=401,
-        )
-
+async def login_submit(request: Request, password: str = Form(...)) -> HTMLResponse:
     db = _get_db()
     stored_hash = await db.get_setting("web_admin_password_hash")
     if not stored_hash or not _verify_password(password, stored_hash):
         return HTMLResponse(
-            template_env.get_template("login.html").render({"request": request, "error": "Invalid username or password."}),
+            template_env.get_template("login.html").render({"request": request, "error": "Invalid password."}),
             status_code=401,
         )
 
     response = RedirectResponse(url="/", status_code=303)
-    value = _sign_value(username)
+    value = _sign_value("admin")
     response.set_cookie(SESSION_COOKIE, value, httponly=True, secure=False)
     return response
 
@@ -188,31 +185,25 @@ async def create_user_page(request: Request, user: str | None = Depends(_get_cur
 async def create_user_submit(
     request: Request,
     aprs_call: str = Form(...),
-    tak_uid: str = Form(...),
-    tak_display_name: str = Form(...),
     tactical_call: str | None = Form(None),
     enabled: str | None = Form(None),
     match_all_ssids: str | None = Form(None),
-    team: str | None = Form(None),
-    role: str | None = Form(None),
-    icon: str | None = Form(None),
     remarks: str | None = Form(None),
     user: str | None = Depends(_get_current_user),
 ) -> RedirectResponse:
     _require_auth(request, user)
     db = _get_db()
+    normalized_call = RosterDB._normalize_call(aprs_call)
+    display_name = tactical_call.strip() if tactical_call else normalized_call
     await db._execute(
-        "INSERT INTO roster(aprs_call, enabled, match_all_ssids, tak_uid, tak_display_name, tactical_call, team, role, icon, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO roster(aprs_call, enabled, match_all_ssids, tak_uid, tak_display_name, tactical_call, remarks) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
-            aprs_call.upper().strip(),
+            normalized_call,
             1 if enabled else 0,
             1 if match_all_ssids else 0,
-            tak_uid.strip(),
-            tak_display_name.strip(),
+            RosterDB.generate_tak_uid(normalized_call),
+            display_name,
             tactical_call.strip() if tactical_call else None,
-            team.strip() if team else None,
-            role.strip() if role else None,
-            icon.strip() if icon else None,
             remarks.strip() if remarks else None,
         ),
     )
@@ -239,31 +230,35 @@ async def edit_user_submit(
     request: Request,
     entry_id: int,
     aprs_call: str = Form(...),
-    tak_uid: str = Form(...),
-    tak_display_name: str = Form(...),
     tactical_call: str | None = Form(None),
     enabled: str | None = Form(None),
     match_all_ssids: str | None = Form(None),
-    team: str | None = Form(None),
-    role: str | None = Form(None),
-    icon: str | None = Form(None),
     remarks: str | None = Form(None),
     user: str | None = Depends(_get_current_user),
 ) -> RedirectResponse:
     _require_auth(request, user)
     db = _get_db()
+    normalized_call = RosterDB._normalize_call(aprs_call)
+    existing = await db._fetchone("SELECT aprs_call, tak_display_name FROM roster WHERE id = ?", (entry_id,))
+    if not existing:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    existing_display_name = existing["tak_display_name"]
+    generated_display_name = RosterDB._normalize_call(existing["aprs_call"])
+    if tactical_call:
+        display_name = tactical_call.strip()
+    elif existing_display_name and existing_display_name != generated_display_name:
+        display_name = existing_display_name
+    else:
+        display_name = normalized_call
     await db._execute(
-        "UPDATE roster SET aprs_call = ?, enabled = ?, match_all_ssids = ?, tak_uid = ?, tak_display_name = ?, tactical_call = ?, team = ?, role = ?, icon = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        "UPDATE roster SET aprs_call = ?, enabled = ?, match_all_ssids = ?, tak_uid = ?, tak_display_name = ?, tactical_call = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         (
-            aprs_call.upper().strip(),
+            normalized_call,
             1 if enabled else 0,
             1 if match_all_ssids else 0,
-            tak_uid.strip(),
-            tak_display_name.strip(),
+            RosterDB.generate_tak_uid(normalized_call),
+            display_name,
             tactical_call.strip() if tactical_call else None,
-            team.strip() if team else None,
-            role.strip() if role else None,
-            icon.strip() if icon else None,
             remarks.strip() if remarks else None,
             entry_id,
         ),
